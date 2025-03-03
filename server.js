@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import  json  from 'body-parser';
+import json from 'body-parser';
 import moment from 'moment';
 import { connect, Schema, model } from 'mongoose';
 import { config } from 'dotenv';
@@ -9,7 +9,9 @@ import { config } from 'dotenv';
 config();
 
 const app = express();
-const port = 3030;
+
+// Use the PORT environment variable or fallback to 3000 if not set
+const port = process.env.PORT || 3030;
 
 // Middleware
 app.use(cors());
@@ -147,7 +149,7 @@ app.post('/api/bookings', async (req, res) => {
   }
 });
 
-// Start the server
-app.listen(port, () => {
+// Start the server and bind to all interfaces
+app.listen(port, '0.0.0.0', () => {
   console.log(`Server running at http://localhost:${port}`);
 });
