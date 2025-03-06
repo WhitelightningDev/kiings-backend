@@ -19,7 +19,7 @@ app.post("/api/book", async (req, res) => {
 
     // Create Yoco payment session
     const yocoResponse = await axios.post(
-      "https://online.yoco.com/api/payments",
+      "https://payments.yoco.com/api/checkouts",
       {
         amountInCents: totalPrice * 100, // Convert to cents
         currency: "ZAR",
