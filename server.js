@@ -1,26 +1,22 @@
 import express from 'express';
 import cors from 'cors';
-import json from 'body-parser';
+import bodyParser from 'body-parser';
 import moment from 'moment';
 import { connect, Schema, model } from 'mongoose';
 import { config } from 'dotenv';
 
-// Load environment variables from .env file
+// Load environment variables
 config();
 
 const app = express();
-
-// Use the PORT environment variable or fallback to 3000 if not set
 const port = process.env.PORT || 3030;
 
 // Middleware
 app.use(cors());
-  
-app.use(json());
+app.use(bodyParser.json());
 
 // MongoDB connection
 const mongoURI = process.env.MONGO_URI;
-
 connect(mongoURI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -50,42 +46,34 @@ const bookingSchema = new Schema({
   subscription: String,
   serviceLocation: String,
   address: String,
+  paymentStatus: { type: String, default: "Pending" },
 });
 
 const Booking = model('Booking', bookingSchema);
 
-// Time slot buffer (1 hour)
-const bufferTimeInMinutes = 60;
-
-// Helper function to generate available time slots
+// Generate available time slots
 function generateAvailableSlots(date) {
-  const workingHoursStart = moment(date).set('hour', 8).set('minute', 0); // 8:00 AM
-  const workingHoursEnd = moment(date).set('hour', 18).set('minute', 0); // 6:00 PM
+  const workingHoursStart = moment(date).set('hour', 8).set('minute', 0);
+  const workingHoursEnd = moment(date).set('hour', 18).set('minute', 0);
   const slots = [];
   let currentSlot = workingHoursStart;
 
   while (currentSlot.isBefore(workingHoursEnd)) {
     slots.push(currentSlot.format('HH:mm'));
-    currentSlot = currentSlot.add(30, 'minutes'); // 30-minute slots
+    currentSlot = currentSlot.add(30, 'minutes');
   }
 
   return slots;
 }
 
-// Fetch available slots for a given date
+// Fetch available slots
 app.get('/api/available-slots', async (req, res) => {
   const { date } = req.query;
-  if (!date) {
-    return res.status(400).send('Date is required');
-  }
+  if (!date) return res.status(400).send('Date is required');
 
-  // Generate available slots
   const availableSlots = generateAvailableSlots(date);
-
-  // Remove any slots already booked
   const bookedTimes = await Booking.find({ date }).select('time').lean();
   const bookedTimeSlots = bookedTimes.map(booking => booking.time);
-
   const availableTimes = availableSlots.filter(slot => !bookedTimeSlots.includes(slot));
 
   return res.json(availableTimes);
@@ -93,53 +81,14 @@ app.get('/api/available-slots', async (req, res) => {
 
 // Book a car wash
 app.post('/api/bookings', async (req, res) => {
-  const {
-    firstName,
-    lastName,
-    carModel,
-    washType,
-    additionalServices,
-    date,
-    time,
-    email,
-    subscription,
-    serviceLocation,
-    address,
-  } = req.body;
+  const { firstName, lastName, carModel, washType, additionalServices, date, time, email, subscription, serviceLocation, address } = req.body;
 
-  // Validate input
   if (!firstName || !lastName || !carModel || !washType || !date || !time || !email || !serviceLocation) {
     return res.status(400).send('All fields are required');
   }
 
-  // Check if the selected time slot is available
-  const selectedTime = moment(`${date} ${time}`, 'YYYY-MM-DD HH:mm');
-  const bufferStartTime = selectedTime.subtract(bufferTimeInMinutes, 'minutes');
-  const bufferEndTime = selectedTime.add(bufferTimeInMinutes, 'minutes');
-
-  // Check if any booking overlaps with the buffer time
-  const isOverlapping = await Booking.find({
-    date,
-    time: { $gte: bufferStartTime.format('HH:mm'), $lte: bufferEndTime.format('HH:mm') },
-  }).lean();
-
-  if (isOverlapping.length > 0) {
-    return res.status(400).send('Selected time slot is not available due to overlap');
-  }
-
-  // Create a new booking
   const newBooking = new Booking({
-    firstName,
-    lastName,
-    carModel,
-    washType,
-    additionalServices,
-    date,
-    time,
-    email,
-    subscription,
-    serviceLocation,
-    address,
+    firstName, lastName, carModel, washType, additionalServices, date, time, email, subscription, serviceLocation, address,
   });
 
   try {
@@ -150,7 +99,67 @@ app.post('/api/bookings', async (req, res) => {
   }
 });
 
-// Start the server and bind to all interfaces
+// Fetch a user's bookings
+app.get("/api/my-bookings", async (req, res) => {
+  const { email } = req.query;
+  if (!email) return res.status(400).json({ error: "Email is required" });
+
+  try {
+    const bookings = await Booking.find({ email });
+    res.json(bookings);
+  } catch (error) {
+    res.status(500).json({ error: "Could not retrieve bookings" });
+  }
+});
+
+// Fetch all bookings for admin
+app.get("/api/all-bookings", async (req, res) => {
+  try {
+    const bookings = await Booking.find();
+    res.json(bookings);
+  } catch (error) {
+    res.status(500).json({ error: "Could not retrieve bookings" });
+  }
+});
+
+// Cancel a booking
+app.delete("/api/cancel-booking/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const booking = await Booking.findById(id);
+
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    const now = moment();
+    const bookingTime = moment(`${booking.date} ${booking.time}`, "YYYY-MM-DD HH:mm");
+
+    if (now.isAfter(bookingTime.subtract(1, "hour"))) {
+      return res.status(400).json({ error: "Cannot cancel within 1 hour of appointment" });
+    }
+
+    await Booking.findByIdAndDelete(id);
+    res.json({ message: "Booking cancelled successfully" });
+  } catch (error) {
+    res.status(500).json({ error: "Could not cancel booking" });
+  }
+});
+
+// Update booking payment status
+app.put("/api/update-payment", async (req, res) => {
+  try {
+    const { bookingId } = req.body;
+    if (!bookingId) return res.status(400).json({ error: "Booking ID required" });
+
+    await Booking.findByIdAndUpdate(bookingId, { paymentStatus: "Paid" });
+    res.json({ message: "Payment updated successfully" });
+  } catch (error) {
+    res.status(500).json({ error: "Could not update payment" });
+  }
+});
+
+// Start the server
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server running at http://localhost:${port}`);
 });

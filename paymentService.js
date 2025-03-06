@@ -31,7 +31,7 @@ app.post("/api/book", async (req, res) => {
         headers: {
           Authorization: `Bearer ${YOCO_SECRET_KEY}`,
           "Content-Type": "application/json",
-        },
+        },        
       }
     );
 
