@@ -95,6 +95,7 @@ app.post('/api/bookings', async (req, res) => {
     await newBooking.save();
     res.status(201).json({ message: 'Booking confirmed', booking: newBooking });
   } catch (error) {
+    console.error(error); // Log the error for debugging
     res.status(500).send('There was an error with your booking.');
   }
 });
@@ -108,6 +109,7 @@ app.get("/api/my-bookings", async (req, res) => {
     const bookings = await Booking.find({ email });
     res.json(bookings);
   } catch (error) {
+    console.error(error); // Log the error for debugging
     res.status(500).json({ error: "Could not retrieve bookings" });
   }
 });
@@ -118,6 +120,7 @@ app.get("/api/all-bookings", async (req, res) => {
     const bookings = await Booking.find();
     res.json(bookings);
   } catch (error) {
+    console.error(error); // Log the error for debugging
     res.status(500).json({ error: "Could not retrieve bookings" });
   }
 });
@@ -142,6 +145,7 @@ app.delete("/api/cancel-booking/:id", async (req, res) => {
     await Booking.findByIdAndDelete(id);
     res.json({ message: "Booking cancelled successfully" });
   } catch (error) {
+    console.error(error); // Log the error for debugging
     res.status(500).json({ error: "Could not cancel booking" });
   }
 });
@@ -155,6 +159,7 @@ app.put("/api/update-payment", async (req, res) => {
     await Booking.findByIdAndUpdate(bookingId, { paymentStatus: "Paid" });
     res.json({ message: "Payment updated successfully" });
   } catch (error) {
+    console.error(error); // Log the error for debugging
     res.status(500).json({ error: "Could not update payment" });
   }
 });
