@@ -18,7 +18,7 @@ app.use(bodyParser.json());
 // MongoDB connection
 const mongoURI = process.env.MONGO_URI;
 connect(mongoURI, {
-  useNewUrlParser: true,
+  useNewUrlParser: true,  
   useUnifiedTopology: true,
 })
   .then(() => console.log("MongoDB connected"))
@@ -56,7 +56,7 @@ function generateAvailableSlots(date) {
   const workingHoursStart = moment(date).set('hour', 8).set('minute', 0);
   const workingHoursEnd = moment(date).set('hour', 18).set('minute', 0);
   const slots = [];
-  let currentSlot = workingHoursStart;
+  let currentSlot = workingaHoursStart;
 
   while (currentSlot.isBefore(workingHoursEnd)) {
     slots.push(currentSlot.format('HH:mm'));
@@ -80,23 +80,35 @@ app.get('/api/available-slots', async (req, res) => {
 });
 
 // Book a car wash
-app.post('/api/bookings', async (req, res) => {
-  const { firstName, lastName, carModel, washType, additionalServices, date, time, email, subscription, serviceLocation, address } = req.body;
-
-  if (!firstName || !lastName || !carModel || !washType || !date || !time || !email || !serviceLocation) {
-    return res.status(400).send('All fields are required');
-  }
-
-  const newBooking = new Booking({
-    firstName, lastName, carModel, washType, additionalServices, date, time, email, subscription, serviceLocation, address,
-  });
-
+app.post("/api/book", async (req, res) => {
   try {
-    await newBooking.save();
-    res.status(201).json({ message: 'Booking confirmed', booking: newBooking });
+    const { firstName, lastName, email, totalPrice } = req.body;
+
+    // Create Yoco payment session
+    const yocoResponse = await axios.post(
+      "https://payments.yoco.com/api/checkouts",
+      {
+        amountInCents: totalPrice * 100, // Convert to cents
+        currency: "ZAR",
+        reference: `Booking_${Date.now()}`,
+        successUrl: "http://localhost:3000/success", // Update with actual frontend URL
+        cancelUrl: "http://localhost:3000/cancel",
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${YOCO_SECRET_KEY}`,
+          "Content-Type": "application/json",
+        },        
+      }
+    );
+
+    console.log("Yoco Response:", yocoResponse.data);  // Log Yoco response
+
+    // Send Yoco redirect URL
+    res.json({ redirectUrl: yocoResponse.data.checkoutUrl });
   } catch (error) {
-    console.error(error); // Log the error for debugging
-    res.status(500).send('There was an error with your booking.');
+    console.error("Yoco Payment Error:", error.response?.data || error.message);
+    res.status(500).json({ error: "Payment initiation failed" });
   }
 });
 
