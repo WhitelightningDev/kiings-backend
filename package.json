@@ -20,6 +20,7 @@
     "mongodb": "^6.14.0",
     "mongoose": "^8.11.0",
     "nodemailer": "^6.10.0",
-    "nodemon": "^3.1.9"
+    "nodemon": "^3.1.9",
+    "telnet": "^0.0.1"
   }
 }
