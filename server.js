@@ -98,6 +98,7 @@ app.get('/api/available-slots', async (req, res) => {
   return res.json(availableTimes);
 });
 
+
 // Book a car wash and initiate payment
 app.post("/api/book", async (req, res) => {
   try {
@@ -167,6 +168,17 @@ app.post("/api/book", async (req, res) => {
         },
       }
     );
+    
+    console.log("🎉 Yoco Response:", yocoResponse.data);  // Log the full Yoco response
+    
+    // Check if the response contains checkoutUrl
+    if (yocoResponse.data.checkoutUrl) {
+      return res.json({ redirectUrl: yocoResponse.data.checkoutUrl });
+    } else {
+      console.error("❌ Yoco response does not contain checkoutUrl:", yocoResponse.data);
+      return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
+    }
+    
 
     console.log("🎉 Yoco Response:", yocoResponse.data);
 
@@ -181,17 +193,17 @@ app.post("/api/book", async (req, res) => {
     await newPayment.save();
     console.log("💳 Payment Record Saved:", newPayment);
 
-    // Ensure the correct `redirectUrl` is sent
-    if (yocoResponse.data.checkoutUrl) {
-      return res.json({ redirectUrl: yocoResponse.data.checkoutUrl });
-    } else {
-      return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
-    }
+    res.json({ redirectUrl: yocoResponse.data.checkoutUrl });
   } catch (error) {
-    console.error("❌ Yoco Payment Error:", error.response?.data || error.message);
+    console.error(
+      "❌ Yoco Payment Error:",
+      error.response?.data || error.message
+    );
     res.status(500).json({ error: "Payment initiation failed" });
   }
 });
+
+
 
 // Yoco Payment Confirmation Webhook
 app.post("/api/payments/confirm", async (req, res) => {
