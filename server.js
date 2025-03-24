@@ -13,7 +13,14 @@ const app = express();
 const port = process.env.PORT || 3030;
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: "https://kiings.vercel.app", // ✅ Allow requests only from your frontend domain
+    methods: "GET,POST,PUT,DELETE",
+    allowedHeaders: "Content-Type,Authorization",
+  })
+);
+
 app.use(bodyParser.json());
 
 // MongoDB connection
