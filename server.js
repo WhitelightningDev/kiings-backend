@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import moment from 'moment';
+import axios from 'axios';
 import { connect, Schema, model } from 'mongoose';
 import { config } from 'dotenv';
 
@@ -51,12 +52,23 @@ const bookingSchema = new Schema({
 
 const Booking = model('Booking', bookingSchema);
 
+// Define Payment model
+const paymentSchema = new Schema({
+  bookingId: { type: Schema.Types.ObjectId, ref: "Booking", required: true },
+  amount: { type: Number, required: true },
+  yocoSessionId: { type: String, required: true },
+  paymentStatus: { type: String, enum: ["pending", "successful", "failed"], default: "pending" },
+  createdAt: { type: Date, default: Date.now },
+});
+
+const Payment = model("Payment", paymentSchema);
+
 // Generate available time slots
 function generateAvailableSlots(date) {
   const workingHoursStart = moment(date).set('hour', 8).set('minute', 0);
   const workingHoursEnd = moment(date).set('hour', 18).set('minute', 0);
   const slots = [];
-  let currentSlot = workingaHoursStart;
+  let currentSlot = workingHoursStart;
 
   while (currentSlot.isBefore(workingHoursEnd)) {
     slots.push(currentSlot.format('HH:mm'));
@@ -79,10 +91,28 @@ app.get('/api/available-slots', async (req, res) => {
   return res.json(availableTimes);
 });
 
-// Book a car wash
+// Book a car wash and initiate payment
 app.post("/api/book", async (req, res) => {
   try {
-    const { firstName, lastName, email, totalPrice } = req.body;
+    const { firstName, lastName, carModel, washType, additionalServices, date, time, email, subscription, serviceLocation, address, totalPrice } = req.body;
+
+    // Create a booking record with "Pending" payment status
+    const newBooking = new Booking({
+      firstName,
+      lastName,
+      carModel,
+      washType,
+      additionalServices,
+      date,
+      time,
+      email,
+      subscription,
+      serviceLocation,
+      address,
+      paymentStatus: "Pending",
+    });
+
+    const savedBooking = await newBooking.save();
 
     // Create Yoco payment session
     const yocoResponse = await axios.post(
@@ -90,13 +120,13 @@ app.post("/api/book", async (req, res) => {
       {
         amountInCents: totalPrice * 100, // Convert to cents
         currency: "ZAR",
-        reference: `Booking_${Date.now()}`,
-        successUrl: "http://localhost:3000/success", // Update with actual frontend URL
-        cancelUrl: "http://localhost:3000/cancel",
+        reference: `Booking_${savedBooking._id}`,
+        successUrl: `http://localhost:3000/payment-success?bookingId=${savedBooking._id}`, // Update with actual frontend URL
+        cancelUrl: `http://localhost:3000/payment-failed?bookingId=${savedBooking._id}`,
       },
       {
         headers: {
-          Authorization: `Bearer ${YOCO_SECRET_KEY}`,
+          Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`,
           "Content-Type": "application/json",
         },        
       }
@@ -104,11 +134,52 @@ app.post("/api/book", async (req, res) => {
 
     console.log("Yoco Response:", yocoResponse.data);  // Log Yoco response
 
+    // Save payment record
+    const newPayment = new Payment({
+      bookingId: savedBooking._id,
+      amount: totalPrice,
+      yocoSessionId: yocoResponse.data.id,
+      paymentStatus: "pending",
+    });
+
+    await newPayment.save();
+
     // Send Yoco redirect URL
     res.json({ redirectUrl: yocoResponse.data.checkoutUrl });
   } catch (error) {
     console.error("Yoco Payment Error:", error.response?.data || error.message);
     res.status(500).json({ error: "Payment initiation failed" });
+  }
+});
+
+// Yoco Payment Confirmation Webhook
+app.post("/api/payments/confirm", async (req, res) => {
+  try {
+    const { sessionId, status } = req.body;
+
+    if (!sessionId || !status) {
+      return res.status(400).json({ error: "Invalid request data" });
+    }
+
+    const payment = await Payment.findOne({ yocoSessionId: sessionId });
+
+    if (!payment) {
+      return res.status(404).json({ error: "Payment not found" });
+    }
+
+    // Update payment status
+    payment.paymentStatus = status === "successful" ? "successful" : "failed";
+    await payment.save();
+
+    // If payment is successful, update the corresponding booking
+    if (status === "successful") {
+      await Booking.findByIdAndUpdate(payment.bookingId, { paymentStatus: "Paid" });
+    }
+
+    res.json({ message: "Payment status updated successfully" });
+  } catch (error) {
+    console.error("Error confirming payment:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -121,7 +192,7 @@ app.get("/api/my-bookings", async (req, res) => {
     const bookings = await Booking.find({ email });
     res.json(bookings);
   } catch (error) {
-    console.error(error); // Log the error for debugging
+    console.error(error);
     res.status(500).json({ error: "Could not retrieve bookings" });
   }
 });
@@ -132,47 +203,8 @@ app.get("/api/all-bookings", async (req, res) => {
     const bookings = await Booking.find();
     res.json(bookings);
   } catch (error) {
-    console.error(error); // Log the error for debugging
+    console.error(error);
     res.status(500).json({ error: "Could not retrieve bookings" });
-  }
-});
-
-// Cancel a booking
-app.delete("/api/cancel-booking/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const booking = await Booking.findById(id);
-
-    if (!booking) {
-      return res.status(404).json({ error: "Booking not found" });
-    }
-
-    const now = moment();
-    const bookingTime = moment(`${booking.date} ${booking.time}`, "YYYY-MM-DD HH:mm");
-
-    if (now.isAfter(bookingTime.subtract(1, "hour"))) {
-      return res.status(400).json({ error: "Cannot cancel within 1 hour of appointment" });
-    }
-
-    await Booking.findByIdAndDelete(id);
-    res.json({ message: "Booking cancelled successfully" });
-  } catch (error) {
-    console.error(error); // Log the error for debugging
-    res.status(500).json({ error: "Could not cancel booking" });
-  }
-});
-
-// Update booking payment status
-app.put("/api/update-payment", async (req, res) => {
-  try {
-    const { bookingId } = req.body;
-    if (!bookingId) return res.status(400).json({ error: "Booking ID required" });
-
-    await Booking.findByIdAndUpdate(bookingId, { paymentStatus: "Paid" });
-    res.json({ message: "Payment updated successfully" });
-  } catch (error) {
-    console.error(error); // Log the error for debugging
-    res.status(500).json({ error: "Could not update payment" });
   }
 });
 
