@@ -96,6 +96,14 @@ app.post("/api/book", async (req, res) => {
   try {
     const { firstName, lastName, carModel, washType, additionalServices, date, time, email, subscription, serviceLocation, address, totalPrice } = req.body;
 
+    // Validate totalPrice
+    if (!totalPrice || isNaN(totalPrice) || totalPrice <= 0) {
+      return res.status(400).json({ error: "Invalid total price" });
+    }
+
+    // Convert total price to cents for Yoco
+    const amountInCents = Math.round(totalPrice * 100); // Convert to cents safely
+
     // Create a booking record with "Pending" payment status
     const newBooking = new Booking({
       firstName,
@@ -118,21 +126,21 @@ app.post("/api/book", async (req, res) => {
     const yocoResponse = await axios.post(
       "https://payments.yoco.com/api/checkouts",
       {
-        amountInCents: totalPrice * 100, // Convert to cents
+        amountInCents, // Correctly converted amount
         currency: "ZAR",
         reference: `Booking_${savedBooking._id}`,
-        successUrl: `http://localhost:3000/payment-success?bookingId=${savedBooking._id}`, // Update with actual frontend URL
+        successUrl: `http://localhost:3000/payment-success?bookingId=${savedBooking._id}`,
         cancelUrl: `http://localhost:3000/payment-failed?bookingId=${savedBooking._id}`,
       },
       {
         headers: {
           Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`,
           "Content-Type": "application/json",
-        },        
+        },
       }
     );
 
-    console.log("Yoco Response:", yocoResponse.data);  // Log Yoco response
+    console.log("Yoco Response:", yocoResponse.data);
 
     // Save payment record
     const newPayment = new Payment({
@@ -144,13 +152,13 @@ app.post("/api/book", async (req, res) => {
 
     await newPayment.save();
 
-    // Send Yoco redirect URL
     res.json({ redirectUrl: yocoResponse.data.checkoutUrl });
   } catch (error) {
     console.error("Yoco Payment Error:", error.response?.data || error.message);
     res.status(500).json({ error: "Payment initiation failed" });
   }
 });
+
 
 // Yoco Payment Confirmation Webhook
 app.post("/api/payments/confirm", async (req, res) => {
