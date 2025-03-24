@@ -106,37 +106,27 @@ app.post("/api/book", async (req, res) => {
       date, time, email, subscription, serviceLocation, address, totalPrice,
     } = req.body;
 
-    // Validate required fields
-    if (!firstName || !lastName || !carModel || !washType || !date || !time || !email || !serviceLocation) {
-      return res.status(400).json({ error: "Missing required booking details" });
-    }
-
-    // Validate total price
     if (!totalPrice || isNaN(Number(totalPrice)) || Number(totalPrice) <= 0) {
       return res.status(400).json({ error: "Invalid total price" });
     }
 
-    const amount = Math.round(Number(totalPrice) * 100); // Convert to cents for Yoco
-
-    // Save booking with "Pending" payment status
+    const amount = Math.round(Number(totalPrice) * 100);
+    
     const newBooking = new Booking({
       firstName, lastName, carModel, washType, additionalServices,
       date, time, email, subscription, serviceLocation, address,
       paymentStatus: "Pending",
     });
-
     const savedBooking = await newBooking.save();
 
-    // Define Yoco payment details
     const yocoPayload = {
       amount,
       currency: "ZAR",
       reference: `Booking_${savedBooking._id}`,
       successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}`,
-      cancelUrl: `https://kiings.vercel.app/#/payment-canceled?bookingId=${savedBooking._id}`, // Updated cancel URL
+      cancelUrl: `https://kiings.vercel.app/#/error?bookingId=${savedBooking._id}`,
     };
 
-    // Send request to Yoco API
     const yocoResponse = await axios.post(
       "https://payments.yoco.com/api/checkouts",
       yocoPayload,
@@ -147,29 +137,21 @@ app.post("/api/book", async (req, res) => {
         },
       }
     );
-
-    // Validate Yoco response
-    if (yocoResponse.data && yocoResponse.data.redirectUrl) {
-      // Save payment session with "Pending" status
+    
+    if (yocoResponse.data.redirectUrl) {
       await new Payment({
         bookingId: savedBooking._id,
         amount: totalPrice,
         yocoSessionId: yocoResponse.data.id,
-        paymentStatus: "Pending",
+        paymentStatus: "pending",
       }).save();
-
       return res.json({ redirectUrl: yocoResponse.data.redirectUrl });
     }
-
-    console.error("Yoco API response missing redirectUrl:", yocoResponse.data);
     return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
-
   } catch (error) {
-    console.error("Error processing booking:", error.message);
-    return res.status(500).json({ error: "Payment initiation failed. Please try again." });
+    res.status(500).json({ error: "Payment initiation failed" });
   }
 });
-
 
 // Payment confirmation webhook
 app.post("/api/payments/confirm", async (req, res) => {
