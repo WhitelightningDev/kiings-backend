@@ -145,8 +145,8 @@ app.post("/api/book", async (req, res) => {
       amount, // Correctly converted amount
       currency: "ZAR",
       reference: `Booking_${savedBooking._id}`,
-      successUrl: `http://localhost:3000/payment-success?bookingId=${savedBooking._id}`,
-      cancelUrl: `http://localhost:3000/payment-failed?bookingId=${savedBooking._id}`,
+      successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}`,
+      cancelUrl: `https://kiings.vercel.app/#/error?bookingId=${savedBooking._id}`,
     };
 
     console.log("📤 Sending Payment Request to Yoco:", yocoPayload);
