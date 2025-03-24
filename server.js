@@ -91,7 +91,6 @@ app.get('/api/available-slots', async (req, res) => {
   return res.json(availableTimes);
 });
 
-import axios from "axios"; // Ensure axios is imported
 
 // Book a car wash and initiate payment
 app.post("/api/book", async (req, res) => {
