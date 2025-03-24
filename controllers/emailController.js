@@ -1,5 +1,7 @@
-const nodemailer = require("nodemailer");
-require("dotenv").config();
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 // Configure Nodemailer transporter
 const transporter = nodemailer.createTransport({
@@ -11,7 +13,7 @@ const transporter = nodemailer.createTransport({
 });
 
 // Send booking emails
-const sendBookingEmails = async (bookingData) => {
+export const sendBookingEmails = async (bookingData) => {
   const { firstName, lastName, email, carModel, washType, date, time, totalPrice } = bookingData;
 
   // Owner's email content
@@ -53,10 +55,8 @@ const sendBookingEmails = async (bookingData) => {
   try {
     await transporter.sendMail(ownerMailOptions);
     await transporter.sendMail(userMailOptions);
-    console.log("Emails sent successfully!");
+    console.log("📩 Emails sent successfully!");
   } catch (error) {
-    console.error("Error sending emails:", error);
+    console.error("❌ Error sending emails:", error);
   }
 };
-
-module.exports = { sendBookingEmails };
