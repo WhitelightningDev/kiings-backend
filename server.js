@@ -118,8 +118,8 @@ app.post("/api/book", async (req, res) => {
     }
 
     // Convert total price to cents for Yoco
-    const amountInCents = Math.round(Number(totalPrice) * 100);
-    console.log("💰 Amount in Cents for Yoco:", amountInCents); // Debugging log
+    const amount = Math.round(Number(totalPrice) * 100);
+    console.log("💰 Amount in Cents for Yoco:", amount); // Debugging log
 
     // Create a booking record with "Pending" payment status
     const newBooking = new Booking({
@@ -142,7 +142,7 @@ app.post("/api/book", async (req, res) => {
 
     // Create Yoco payment session
     const yocoPayload = {
-      amountInCents, // Correctly converted amount
+      amount, // Correctly converted amount
       currency: "ZAR",
       reference: `Booking_${savedBooking._id}`,
       successUrl: `http://localhost:3000/payment-success?bookingId=${savedBooking._id}`,
