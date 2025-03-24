@@ -91,18 +91,36 @@ app.get('/api/available-slots', async (req, res) => {
   return res.json(availableTimes);
 });
 
+import axios from "axios"; // Ensure axios is imported
+
 // Book a car wash and initiate payment
 app.post("/api/book", async (req, res) => {
   try {
-    const { firstName, lastName, carModel, washType, additionalServices, date, time, email, subscription, serviceLocation, address, totalPrice } = req.body;
+    console.log("📩 Received Booking Data:", req.body); // Log incoming request
+
+    const {
+      firstName,
+      lastName,
+      carModel,
+      washType,
+      additionalServices,
+      date,
+      time,
+      email,
+      subscription,
+      serviceLocation,
+      address,
+      totalPrice,
+    } = req.body;
 
     // Validate totalPrice
-    if (!totalPrice || isNaN(totalPrice) || totalPrice <= 0) {
+    if (!totalPrice || isNaN(Number(totalPrice)) || Number(totalPrice) <= 0) {
       return res.status(400).json({ error: "Invalid total price" });
     }
 
     // Convert total price to cents for Yoco
-    const amountInCents = Math.round(totalPrice * 100); // Convert to cents safely
+    const amountInCents = Math.round(Number(totalPrice) * 100);
+    console.log("💰 Amount in Cents for Yoco:", amountInCents); // Debugging log
 
     // Create a booking record with "Pending" payment status
     const newBooking = new Booking({
@@ -121,17 +139,22 @@ app.post("/api/book", async (req, res) => {
     });
 
     const savedBooking = await newBooking.save();
+    console.log("✅ Booking Saved:", savedBooking);
 
     // Create Yoco payment session
+    const yocoPayload = {
+      amountInCents, // Correctly converted amount
+      currency: "ZAR",
+      reference: `Booking_${savedBooking._id}`,
+      successUrl: `http://localhost:3000/payment-success?bookingId=${savedBooking._id}`,
+      cancelUrl: `http://localhost:3000/payment-failed?bookingId=${savedBooking._id}`,
+    };
+
+    console.log("📤 Sending Payment Request to Yoco:", yocoPayload);
+
     const yocoResponse = await axios.post(
       "https://payments.yoco.com/api/checkouts",
-      {
-        amountInCents, // Correctly converted amount
-        currency: "ZAR",
-        reference: `Booking_${savedBooking._id}`,
-        successUrl: `http://localhost:3000/payment-success?bookingId=${savedBooking._id}`,
-        cancelUrl: `http://localhost:3000/payment-failed?bookingId=${savedBooking._id}`,
-      },
+      yocoPayload,
       {
         headers: {
           Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`,
@@ -140,7 +163,7 @@ app.post("/api/book", async (req, res) => {
       }
     );
 
-    console.log("Yoco Response:", yocoResponse.data);
+    console.log("🎉 Yoco Response:", yocoResponse.data);
 
     // Save payment record
     const newPayment = new Payment({
@@ -151,13 +174,18 @@ app.post("/api/book", async (req, res) => {
     });
 
     await newPayment.save();
+    console.log("💳 Payment Record Saved:", newPayment);
 
     res.json({ redirectUrl: yocoResponse.data.checkoutUrl });
   } catch (error) {
-    console.error("Yoco Payment Error:", error.response?.data || error.message);
+    console.error(
+      "❌ Yoco Payment Error:",
+      error.response?.data || error.message
+    );
     res.status(500).json({ error: "Payment initiation failed" });
   }
 });
+
 
 
 // Yoco Payment Confirmation Webhook
