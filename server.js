@@ -15,7 +15,7 @@ const port = process.env.PORT || 3030;
 // Middleware
 app.use(
   cors({
-    origin: "https://kiings.vercel.app", // ✅ Allow requests only from your frontend domain
+    origin: "https://kiings.vercel.app",
     methods: "GET,POST,PUT,DELETE",
     allowedHeaders: "Content-Type,Authorization",
   })
@@ -26,7 +26,7 @@ app.use(bodyParser.json());
 // MongoDB connection
 const mongoURI = process.env.MONGO_URI;
 connect(mongoURI, {
-  useNewUrlParser: true,  
+  useNewUrlParser: true,
   useUnifiedTopology: true,
 })
   .then(() => console.log("MongoDB connected"))
@@ -98,65 +98,34 @@ app.get('/api/available-slots', async (req, res) => {
   return res.json(availableTimes);
 });
 
-
 // Book a car wash and initiate payment
 app.post("/api/book", async (req, res) => {
   try {
-    console.log("📩 Received Booking Data:", req.body); // Log incoming request
-
     const {
-      firstName,
-      lastName,
-      carModel,
-      washType,
-      additionalServices,
-      date,
-      time,
-      email,
-      subscription,
-      serviceLocation,
-      address,
-      totalPrice,
+      firstName, lastName, carModel, washType, additionalServices,
+      date, time, email, subscription, serviceLocation, address, totalPrice,
     } = req.body;
 
-    // Validate totalPrice
     if (!totalPrice || isNaN(Number(totalPrice)) || Number(totalPrice) <= 0) {
       return res.status(400).json({ error: "Invalid total price" });
     }
 
-    // Convert total price to cents for Yoco
     const amount = Math.round(Number(totalPrice) * 100);
-    console.log("💰 Amount in Cents for Yoco:", amount); // Debugging log
-
-    // Create a booking record with "Pending" payment status
+    
     const newBooking = new Booking({
-      firstName,
-      lastName,
-      carModel,
-      washType,
-      additionalServices,
-      date,
-      time,
-      email,
-      subscription,
-      serviceLocation,
-      address,
+      firstName, lastName, carModel, washType, additionalServices,
+      date, time, email, subscription, serviceLocation, address,
       paymentStatus: "Pending",
     });
-
     const savedBooking = await newBooking.save();
-    console.log("✅ Booking Saved:", savedBooking);
 
-    // Create Yoco payment session
     const yocoPayload = {
-      amount, // Correctly converted amount
+      amount,
       currency: "ZAR",
       reference: `Booking_${savedBooking._id}`,
       successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}`,
       cancelUrl: `https://kiings.vercel.app/#/error?bookingId=${savedBooking._id}`,
     };
-
-    console.log("📤 Sending Payment Request to Yoco:", yocoPayload);
 
     const yocoResponse = await axios.post(
       "https://payments.yoco.com/api/checkouts",
@@ -169,99 +138,53 @@ app.post("/api/book", async (req, res) => {
       }
     );
     
-    console.log("🎉 Yoco Response:", yocoResponse.data);  // Log the full Yoco response
-    
-    // Check if the response contains checkoutUrl
-    if (yocoResponse.data.checkoutUrl) {
-      return res.json({ redirectUrl: yocoResponse.data.checkoutUrl });
-    } else {
-      console.error("❌ Yoco response does not contain checkoutUrl:", yocoResponse.data);
-      return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
+    if (yocoResponse.data.redirectUrl) {
+      await new Payment({
+        bookingId: savedBooking._id,
+        amount: totalPrice,
+        yocoSessionId: yocoResponse.data.id,
+        paymentStatus: "pending",
+      }).save();
+      return res.json({ redirectUrl: yocoResponse.data.redirectUrl });
     }
-    
-
-    console.log("🎉 Yoco Response:", yocoResponse.data);
-
-    // Save payment record
-    const newPayment = new Payment({
-      bookingId: savedBooking._id,
-      amount: totalPrice,
-      yocoSessionId: yocoResponse.data.id,
-      paymentStatus: "pending",
-    });
-
-    await newPayment.save();
-    console.log("💳 Payment Record Saved:", newPayment);
-
-    res.json({ redirectUrl: yocoResponse.data.checkoutUrl });
+    return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
   } catch (error) {
-    console.error(
-      "❌ Yoco Payment Error:",
-      error.response?.data || error.message
-    );
     res.status(500).json({ error: "Payment initiation failed" });
   }
 });
 
-
-
-// Yoco Payment Confirmation Webhook
+// Payment confirmation webhook
 app.post("/api/payments/confirm", async (req, res) => {
   try {
     const { sessionId, status } = req.body;
-
-    if (!sessionId || !status) {
-      return res.status(400).json({ error: "Invalid request data" });
-    }
+    if (!sessionId || !status) return res.status(400).json({ error: "Invalid request data" });
 
     const payment = await Payment.findOne({ yocoSessionId: sessionId });
+    if (!payment) return res.status(404).json({ error: "Payment not found" });
 
-    if (!payment) {
-      return res.status(404).json({ error: "Payment not found" });
-    }
-
-    // Update payment status
     payment.paymentStatus = status === "successful" ? "successful" : "failed";
     await payment.save();
 
-    // If payment is successful, update the corresponding booking
     if (status === "successful") {
       await Booking.findByIdAndUpdate(payment.bookingId, { paymentStatus: "Paid" });
     }
-
     res.json({ message: "Payment status updated successfully" });
   } catch (error) {
-    console.error("Error confirming payment:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Fetch a user's bookings
+// Fetch bookings
 app.get("/api/my-bookings", async (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).json({ error: "Email is required" });
-
-  try {
-    const bookings = await Booking.find({ email });
-    res.json(bookings);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Could not retrieve bookings" });
-  }
+  res.json(await Booking.find({ email }));
 });
 
-// Fetch all bookings for admin
 app.get("/api/all-bookings", async (req, res) => {
-  try {
-    const bookings = await Booking.find();
-    res.json(bookings);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Could not retrieve bookings" });
-  }
+  res.json(await Booking.find());
 });
 
-// Start the server
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server running at http://localhost:${port}`);
 });
