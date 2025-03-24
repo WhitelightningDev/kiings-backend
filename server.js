@@ -119,12 +119,6 @@ app.post("/api/book", async (req, res) => {
     });
     const savedBooking = await newBooking.save();
     
-    // ✅ Send confirmation email after booking is saved
-    await sendBookingEmails({
-      firstName, lastName, email, carModel, washType: washType.name, 
-      date, time, totalPrice
-    });
-    
     const yocoPayload = {
       amount,
       currency: "ZAR",
