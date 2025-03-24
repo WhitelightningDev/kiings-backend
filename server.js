@@ -5,6 +5,7 @@ import moment from 'moment';
 import axios from 'axios';
 import { connect, Schema, model } from 'mongoose';
 import { config } from 'dotenv';
+import { sendBookingEmails } from './controllers/emailController.js';
 
 // Load environment variables
 config();
@@ -118,6 +119,12 @@ app.post("/api/book", async (req, res) => {
       paymentStatus: "Pending",
     });
     const savedBooking = await newBooking.save();
+
+    // ✅ Send confirmation email after booking is saved
+    await sendBookingEmails({
+      firstName, lastName, email, carModel, washType: washType.name, 
+      date, time, totalPrice
+    });
     
     const yocoPayload = {
       amount,
