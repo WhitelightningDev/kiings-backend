@@ -1,25 +1,27 @@
 const mongoose = require('mongoose');
 
 const bookingSchema = new mongoose.Schema({
-  firstName: String,
-  lastName: String,
-  carModel: String,
-  email: String,
+  firstName: { type: String, required: true },
+  lastName: { type: String, required: true },
+  carModel: { type: String, required: true },
+  email: { type: String, required: true },
   washType: {
-    name: String,
-    price: Number,
-    details: String,
+    name: { type: String, required: false },
+    price: { type: Number, required: false },
+    details: { type: String, required: false },
   },
   additionalServices: [{
-    name: String,
-    price: Number,
+    name: { type: String, required: false },
+    price: { type: Number, required: false },
   }],
-  date: Date,
-  time: String, // Store the selected time (e.g., '10:00 AM')
-  serviceLocation: String,
-  address: String,
-  subscription: Boolean,
+  date: { type: Date, required: false },
+  time: { type: String, required: false },
+  serviceLocation: { type: String, required: false },
+  address: { type: String, required: false },
+  subscription: { type: Boolean, default: false }, // Add default false
+  totalPrice: { type: Number, required: true }, // Always required
   createdAt: { type: Date, default: Date.now },
+  paymentStatus: { type: String, default: "Pending" },
 });
 
 const Booking = mongoose.model('Booking', bookingSchema);

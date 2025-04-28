@@ -28,17 +28,22 @@ async function getAvailableSlots(req, res) {
   }
 }
 
-// Create a new booking
 async function createBooking(req, res) {
   const bookingData = req.body;
+
+  if (!bookingData.firstName || !bookingData.lastName || !bookingData.email || !bookingData.carModel || !bookingData.totalPrice) {
+    return res.status(400).json({ message: 'Missing required booking fields.' });
+  }
 
   try {
     const newBooking = new Booking(bookingData);
     await newBooking.save();
     res.status(201).json(newBooking);
   } catch (error) {
+    console.error('Error creating booking:', error);
     res.status(500).json({ message: 'Error creating booking' });
   }
 }
+
 
 module.exports = { getAvailableSlots, createBooking };
