@@ -122,30 +122,26 @@ app.post("/api/book", async (req, res) => {
       return res.status(400).json({ error: "Invalid total price" });
     }
 
-    const amount = Math.round(Number(totalPrice) * 100);
-    
+    // Create booking
     const newBooking = new Booking({
       firstName, lastName, carModel, washType, additionalServices,
       date, time, email, subscription, serviceLocation, address,
       paymentStatus: "Pending",
     });
+
     const savedBooking = await newBooking.save();
 
-    // ✅ Send confirmation email after booking is saved
-    await sendBookingEmails({
-      firstName, lastName, email, carModel, washType: washType.name, 
-      date, time, totalPrice
-    });
-    
+    // Prepare payment payload
+    const amount = Math.round(Number(totalPrice) * 100);
     const yocoPayload = {
       amount,
       currency: "ZAR",
       reference: `Booking_${savedBooking._id}`,
-      successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}`,
+      successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}&sessionId={sessionId}`, 
       cancelUrl: `https://kiings.vercel.app/#/paymentcanceled?bookingId=${savedBooking._id}`,
-  
     };
 
+    // Create payment session
     const yocoResponse = await axios.post(
       "https://payments.yoco.com/api/checkouts",
       yocoPayload,
@@ -156,21 +152,45 @@ app.post("/api/book", async (req, res) => {
         },
       }
     );
-    
-    if (yocoResponse.data.redirectUrl) {
-      await new Payment({
-        bookingId: savedBooking._id,
-        amount: totalPrice,
-        yocoSessionId: yocoResponse.data.id,
-        paymentStatus: "pending",
-      }).save();
-      return res.json({ redirectUrl: yocoResponse.data.redirectUrl });
+
+    if (!yocoResponse.data?.redirectUrl || !yocoResponse.data?.id) {
+      // If payment session creation failed, rollback booking
+      await Booking.findByIdAndDelete(savedBooking._id);
+      return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
     }
-    return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
+
+    // Save payment with yoco session id
+    await new Payment({
+      bookingId: savedBooking._id,
+      amount: totalPrice,
+      yocoSessionId: yocoResponse.data.id,
+      paymentStatus: "pending",
+    }).save();
+
+    // Only send booking confirmation emails AFTER payment session is created successfully
+    await sendBookingEmails({
+      firstName,
+      lastName,
+      email,
+      carModel,
+      washType: washType.name,
+      date,
+      time,
+      totalPrice,
+    });
+
+    // Fix successUrl to include actual sessionId from response
+    const fixedSuccessUrl = `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}&sessionId=${yocoResponse.data.id}`;
+
+    // Send redirect URL with correct sessionId to frontend
+    return res.json({ redirectUrl: yocoResponse.data.redirectUrl.replace(yocoPayload.successUrl, fixedSuccessUrl) });
+
   } catch (error) {
-    res.status(500).json({ error: "Payment initiation failed" });
+    console.error("Booking/payment initiation error:", error);
+    res.status(500).json({ error: "Booking/payment initiation failed" });
   }
 });
+
 
 // Payment confirmation webhook
 app.post("/api/payments/confirm", async (req, res) => {
