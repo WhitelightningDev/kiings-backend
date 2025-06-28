@@ -1,29 +1,31 @@
 const mongoose = require('mongoose');
 
+const serviceSchema = new mongoose.Schema({
+  name: String,
+  price: Number,
+  details: String,
+});
+
+const additionalServiceSchema = new mongoose.Schema({
+  name: String,
+  price: Number,
+});
+
 const bookingSchema = new mongoose.Schema({
   firstName: { type: String, required: true },
   lastName: { type: String, required: true },
   carModel: { type: String, required: true },
   email: { type: String, required: true },
-  washType: {
-    name: { type: String, required: false },
-    price: { type: Number, required: false },
-    details: { type: String, required: false },
-  },
-  additionalServices: [{
-    name: { type: String, required: false },
-    price: { type: Number, required: false },
-  }],
-  date: { type: Date, required: false },
-  time: { type: String, required: false },
-  serviceLocation: { type: String, required: false },
-  address: { type: String, required: false },
-  subscription: { type: Boolean, default: false }, // Add default false
-  totalPrice: { type: Number, required: true }, // Always required
+  washType: serviceSchema,
+  additionalServices: [additionalServiceSchema],
+  date: { type: Date },
+  time: { type: String },
+  serviceLocation: { type: String },
+  address: { type: String },
+  subscription: { type: Boolean, default: false },
+  totalPrice: { type: Number, required: true },
   createdAt: { type: Date, default: Date.now },
-  paymentStatus: { type: String, default: "Pending" },
+  paymentStatus: { type: String, default: 'Pending' },
 });
 
-const Booking = mongoose.model('Booking', bookingSchema);
-
-module.exports = Booking;
+module.exports = mongoose.model('Booking', bookingSchema);
