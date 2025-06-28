@@ -184,9 +184,27 @@ app.post("/api/payments/confirm", async (req, res) => {
     payment.paymentStatus = status === "successful" ? "successful" : "failed";
     await payment.save();
 
-    if (status === "successful") {
-      await Booking.findByIdAndUpdate(payment.bookingId, { paymentStatus: "Paid" });
-    }
+   if (status === "successful") {
+  const updatedBooking = await Booking.findByIdAndUpdate(
+    payment.bookingId,
+    { paymentStatus: "Paid" },
+    { new: true } // to get updated document back
+  );
+
+  if (updatedBooking) {
+    await sendBookingEmails({
+      firstName: updatedBooking.firstName,
+      lastName: updatedBooking.lastName,
+      email: updatedBooking.email,
+      carModel: updatedBooking.carModel,
+      washType: updatedBooking.washType.name,
+      date: updatedBooking.date,
+      time: updatedBooking.time,
+      totalPrice: payment.amount / 100, // convert cents to Rands
+    });
+  }
+}
+
     res.json({ message: "Payment status updated successfully" });
   } catch (error) {
     res.status(500).json({ error: "Internal Server Error" });
