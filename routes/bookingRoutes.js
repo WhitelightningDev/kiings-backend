@@ -1,11 +1,16 @@
 const express = require('express');
-const { getAvailableSlots, createBooking } = require('../controllers/bookingController');
+const {
+  getAvailableSlots,
+  createBooking,
+  cancelBooking, // 👈 Import new controller
+} = require('../controllers/bookingController');
+
 const router = express.Router();
 
-// Route to fetch available slots for a specific date
 router.get('/available-slots', getAvailableSlots);
-
-// Route to create a booking
 router.post('/bookings', createBooking);
+
+// ✅ Add this route to handle DELETE
+router.delete('/cancel-booking/:id', cancelBooking);
 
 module.exports = router;
