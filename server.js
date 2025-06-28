@@ -122,27 +122,31 @@ app.post("/api/book", async (req, res) => {
     }
 
     const amount = Math.round(Number(totalPrice) * 100);
-    
+
     const newBooking = new Booking({
       firstName, lastName, carModel, washType, additionalServices,
       date, time, email, subscription, serviceLocation, address,
       paymentStatus: "Pending",
     });
+
     const savedBooking = await newBooking.save();
 
-    // NOTE: Removed sendBookingEmails here to send after payment confirmation only
-
+    // 🚫 yocoResponse not yet defined, so don't reference it in payload
     const yocoPayload = {
       amount,
       currency: "ZAR",
       reference: `Booking_${savedBooking._id}`,
-      successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}&sessionId=${yocoResponse.data.id}`,
+      // We'll insert successUrl *after* getting the response
+      successUrl: "", // placeholder
       cancelUrl: `https://kiings.vercel.app/#/paymentcanceled?bookingId=${savedBooking._id}`,
     };
 
     const yocoResponse = await axios.post(
       "https://payments.yoco.com/api/checkouts",
-      yocoPayload,
+      {
+        ...yocoPayload,
+        successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}&sessionId=${yocoResponse?.data?.id}`, // ✅ move here
+      },
       {
         headers: {
           Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`,
@@ -150,7 +154,7 @@ app.post("/api/book", async (req, res) => {
         },
       }
     );
-    
+
     if (yocoResponse.data.redirectUrl) {
       await new Payment({
         bookingId: savedBooking._id,
@@ -158,13 +162,17 @@ app.post("/api/book", async (req, res) => {
         yocoSessionId: yocoResponse.data.id,
         paymentStatus: "pending",
       }).save();
+
       return res.json({ redirectUrl: yocoResponse.data.redirectUrl });
     }
+
     return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
   } catch (error) {
+    console.error("❌ Booking failed:", error.response?.data || error.message);
     res.status(500).json({ error: "Payment initiation failed" });
   }
 });
+
 
 // Payment confirmation webhook
 app.post("/api/payments/confirm", async (req, res) => {
