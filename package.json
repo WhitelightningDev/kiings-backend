@@ -19,7 +19,7 @@
     "moment": "^2.30.1",
     "mongodb": "^6.14.0",
     "mongoose": "^8.11.0",
-    "nodemailer": "^6.10.0",
+    "nodemailer": "^6.10.1",
     "nodemon": "^3.1.9",
     "telnet": "^0.0.1"
   }
