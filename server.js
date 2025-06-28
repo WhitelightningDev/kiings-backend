@@ -7,23 +7,18 @@ import { connect, Schema, model } from 'mongoose';
 import { config } from 'dotenv';
 import { sendBookingEmails } from './controllers/emailController.js';
 
-// Load environment variables
 config();
 
 const app = express();
 const port = process.env.PORT || 3030;
 
-// Middleware
+// CORS Configuration
 const allowedOrigins = ["https://kiings.vercel.app", "http://localhost:3000"];
 app.use(
   cors({
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      } else {
-        return callback(new Error('Not allowed by CORS'));
-      }
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error('Not allowed by CORS'));
     },
     methods: "GET,POST,PUT,DELETE",
     allowedHeaders: "Content-Type,Authorization",
@@ -33,16 +28,16 @@ app.use(
 
 app.use(bodyParser.json());
 
-// MongoDB connection
+// Connect to MongoDB
 const mongoURI = process.env.MONGO_URI;
 connect(mongoURI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.log("Error connecting to MongoDB:", err));
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch((err) => console.error("❌ MongoDB connection error:", err));
 
-// Models
+// Schemas and Models
 const bookingSchema = new Schema({
   firstName: String,
   lastName: String,
@@ -52,12 +47,7 @@ const bookingSchema = new Schema({
     price: Number,
     details: String,
   },
-  additionalServices: [
-    {
-      name: String,
-      price: Number,
-    },
-  ],
+  additionalServices: [{ name: String, price: Number }],
   date: String,
   time: String,
   email: String,
@@ -73,41 +63,44 @@ const paymentSchema = new Schema({
   bookingId: { type: Schema.Types.ObjectId, ref: "Booking", required: true },
   amount: { type: Number, required: true },
   yocoSessionId: { type: String, required: true },
-  paymentStatus: { type: String, enum: ["pending", "successful", "failed"], default: "pending" },
+  paymentStatus: {
+    type: String,
+    enum: ["pending", "successful", "failed"],
+    default: "pending",
+  },
   createdAt: { type: Date, default: Date.now },
 });
 
 const Payment = model("Payment", paymentSchema);
 
-// Utility: Generate available time slots
+// Utility: Generate time slots
 function generateAvailableSlots(date) {
   const start = moment(date).set('hour', 8).set('minute', 0);
   const end = moment(date).set('hour', 18).set('minute', 0);
   const slots = [];
-  let slot = start;
+  let current = start;
 
-  while (slot.isBefore(end)) {
-    slots.push(slot.format('HH:mm'));
-    slot = slot.add(30, 'minutes');
+  while (current.isBefore(end)) {
+    slots.push(current.format('HH:mm'));
+    current = current.add(30, 'minutes');
   }
 
   return slots;
 }
 
-// Endpoint: Fetch available slots
+// Get Available Time Slots
 app.get('/api/available-slots', async (req, res) => {
   const { date } = req.query;
-  if (!date) return res.status(400).send('Date is required');
+  if (!date) return res.status(400).send("Date is required");
 
-  const availableSlots = generateAvailableSlots(date);
-  const bookings = await Booking.find({ date }).select('time').lean();
-  const bookedTimes = bookings.map(b => b.time);
-  const freeSlots = availableSlots.filter(slot => !bookedTimes.includes(slot));
+  const booked = await Booking.find({ date }).select('time').lean();
+  const bookedSlots = booked.map(b => b.time);
+  const available = generateAvailableSlots(date).filter(slot => !bookedSlots.includes(slot));
 
-  return res.json(freeSlots);
+  res.json(available);
 });
 
-// Endpoint: Book and initiate payment (NO email sent here)
+// Book & Create Yoco Checkout (NO email sent here)
 app.post("/api/book", async (req, res) => {
   try {
     const {
@@ -175,13 +168,12 @@ app.post("/api/book", async (req, res) => {
   }
 });
 
-
-// Endpoint: Confirm payment and send email only if successful
+// Confirm Payment & Send Email
 app.post("/api/payments/confirm", async (req, res) => {
   try {
     const { sessionId, status } = req.body;
     if (!sessionId || !status) {
-      return res.status(400).json({ error: "Invalid request data" });
+      return res.status(400).json({ error: "Missing sessionId or status" });
     }
 
     const payment = await Payment.findOne({ yocoSessionId: sessionId });
@@ -191,34 +183,34 @@ app.post("/api/payments/confirm", async (req, res) => {
     await payment.save();
 
     if (status === "successful") {
-      const updatedBooking = await Booking.findByIdAndUpdate(
+      const booking = await Booking.findByIdAndUpdate(
         payment.bookingId,
         { paymentStatus: "Paid" },
         { new: true }
       );
 
-      if (updatedBooking) {
+      if (booking) {
         await sendBookingEmails({
-          firstName: updatedBooking.firstName,
-          lastName: updatedBooking.lastName,
-          email: updatedBooking.email,
-          carModel: updatedBooking.carModel,
-          washType: updatedBooking.washType.name,
-          date: updatedBooking.date,
-          time: updatedBooking.time,
-          totalPrice: payment.amount / 100, // Convert from cents to rands
+          firstName: booking.firstName,
+          lastName: booking.lastName,
+          email: booking.email,
+          carModel: booking.carModel,
+          washType: booking.washType.name,
+          date: booking.date,
+          time: booking.time,
+          totalPrice: payment.amount / 100, // convert to rands
         });
       }
     }
 
-    return res.json({ message: "Payment status updated successfully" });
+    return res.json({ message: "Payment status updated" });
   } catch (error) {
-    console.error("Payment confirmation failed:", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    console.error("❌ /api/payments/confirm error:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Endpoint: Fetch bookings by email
+// Get Bookings by Email
 app.get("/api/my-bookings", async (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).json({ error: "Email is required" });
@@ -227,13 +219,13 @@ app.get("/api/my-bookings", async (req, res) => {
   res.json(bookings);
 });
 
-// Endpoint: Fetch all bookings
+// Get All Bookings
 app.get("/api/all-bookings", async (_req, res) => {
   const bookings = await Booking.find();
   res.json(bookings);
 });
 
-// Start server
+// Start Server
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server running at http://localhost:${port}`);
 });
