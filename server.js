@@ -19,6 +19,7 @@ const allowedOrigins = ["https://kiings.vercel.app", "http://localhost:3000"];
 app.use(
   cors({
     origin: function (origin, callback) {
+      // allow requests with no origin (like mobile apps, Postman)
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
@@ -28,7 +29,7 @@ app.use(
     },
     methods: "GET,POST,PUT,DELETE",
     allowedHeaders: "Content-Type,Authorization",
-    credentials: true,
+    credentials: true, // In case you need cookies or auth later
   })
 );
 
@@ -122,31 +123,32 @@ app.post("/api/book", async (req, res) => {
     }
 
     const amount = Math.round(Number(totalPrice) * 100);
-
+    
     const newBooking = new Booking({
       firstName, lastName, carModel, washType, additionalServices,
       date, time, email, subscription, serviceLocation, address,
       paymentStatus: "Pending",
     });
-
     const savedBooking = await newBooking.save();
 
-    // 🚫 yocoResponse not yet defined, so don't reference it in payload
+    // ✅ Send confirmation email after booking is saved
+    await sendBookingEmails({
+      firstName, lastName, email, carModel, washType: washType.name, 
+      date, time, totalPrice
+    });
+    
     const yocoPayload = {
       amount,
       currency: "ZAR",
       reference: `Booking_${savedBooking._id}`,
-      // We'll insert successUrl *after* getting the response
-      successUrl: "", // placeholder
+      successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}`,
       cancelUrl: `https://kiings.vercel.app/#/paymentcanceled?bookingId=${savedBooking._id}`,
+  
     };
 
     const yocoResponse = await axios.post(
       "https://payments.yoco.com/api/checkouts",
-      {
-        ...yocoPayload,
-        successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}&sessionId=${yocoResponse?.data?.id}`, // ✅ move here
-      },
+      yocoPayload,
       {
         headers: {
           Authorization: `Bearer ${process.env.YOCO_SECRET_KEY}`,
@@ -154,7 +156,7 @@ app.post("/api/book", async (req, res) => {
         },
       }
     );
-
+    
     if (yocoResponse.data.redirectUrl) {
       await new Payment({
         bookingId: savedBooking._id,
@@ -162,17 +164,13 @@ app.post("/api/book", async (req, res) => {
         yocoSessionId: yocoResponse.data.id,
         paymentStatus: "pending",
       }).save();
-
       return res.json({ redirectUrl: yocoResponse.data.redirectUrl });
     }
-
     return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
   } catch (error) {
-    console.error("❌ Booking failed:", error.response?.data || error.message);
     res.status(500).json({ error: "Payment initiation failed" });
   }
 });
-
 
 // Payment confirmation webhook
 app.post("/api/payments/confirm", async (req, res) => {
@@ -216,7 +214,6 @@ app.post("/api/payments/confirm", async (req, res) => {
       console.log("📦 Booking updated successfully:", updatedBooking._id);
 
       try {
-        // Send confirmation email ONLY after payment success
         await sendBookingEmails({
           firstName: updatedBooking.firstName,
           lastName: updatedBooking.lastName,
@@ -225,7 +222,7 @@ app.post("/api/payments/confirm", async (req, res) => {
           washType: updatedBooking.washType.name,
           date: updatedBooking.date,
           time: updatedBooking.time,
-          totalPrice: payment.amount / 100,
+          totalPrice: payment.amount / 100, // cents to Rands
         });
         console.log("📩 Payment success confirmation emails sent.");
       } catch (emailError) {
@@ -239,6 +236,7 @@ app.post("/api/payments/confirm", async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 // Fetch bookings
 app.get("/api/my-bookings", async (req, res) => {
