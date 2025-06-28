@@ -123,27 +123,22 @@ app.post("/api/book", async (req, res) => {
     }
 
     const amount = Math.round(Number(totalPrice) * 100);
-    
+
+    // Save booking to DB first
     const newBooking = new Booking({
       firstName, lastName, carModel, washType, additionalServices,
       date, time, email, subscription, serviceLocation, address,
       paymentStatus: "Pending",
     });
+
     const savedBooking = await newBooking.save();
 
-    // ✅ Send confirmation email after booking is saved
-    await sendBookingEmails({
-      firstName, lastName, email, carModel, washType: washType.name, 
-      date, time, totalPrice
-    });
-    
+    // Prepare Yoco checkout
     const yocoPayload = {
       amount,
       currency: "ZAR",
       reference: `Booking_${savedBooking._id}`,
-      successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}`,
       cancelUrl: `https://kiings.vercel.app/#/paymentcanceled?bookingId=${savedBooking._id}`,
-  
     };
 
     const yocoResponse = await axios.post(
@@ -156,21 +151,30 @@ app.post("/api/book", async (req, res) => {
         },
       }
     );
-    
-    if (yocoResponse.data.redirectUrl) {
+
+    if (yocoResponse.data?.redirectUrl && yocoResponse.data?.id) {
+      // Save payment to DB
       await new Payment({
         bookingId: savedBooking._id,
         amount: totalPrice,
         yocoSessionId: yocoResponse.data.id,
         paymentStatus: "pending",
       }).save();
-      return res.json({ redirectUrl: yocoResponse.data.redirectUrl });
+
+      // Generate success URL with session ID
+      const successUrl = `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}&sessionId=${yocoResponse.data.id}`;
+      // Return redirect URL to frontend
+      return res.json({ redirectUrl: successUrl });
     }
+
     return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
+
   } catch (error) {
-    res.status(500).json({ error: "Payment initiation failed" });
+    console.error("❌ Booking failed:", error.response?.data || error.message || error);
+    return res.status(500).json({ error: "Payment initiation failed" });
   }
 });
+
 
 // Payment confirmation webhook
 app.post("/api/payments/confirm", async (req, res) => {
