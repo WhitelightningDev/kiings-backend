@@ -110,7 +110,7 @@ app.get('/api/available-slots', async (req, res) => {
   return res.json(availableTimes);
 });
 
-// Book a car wash and initiate payment
+// Book a car wash and initiate payment (NO email sending here)
 app.post("/api/book", async (req, res) => {
   try {
     const {
@@ -123,27 +123,21 @@ app.post("/api/book", async (req, res) => {
     }
 
     const amount = Math.round(Number(totalPrice) * 100);
-    
+
     const newBooking = new Booking({
       firstName, lastName, carModel, washType, additionalServices,
       date, time, email, subscription, serviceLocation, address,
       paymentStatus: "Pending",
     });
+
     const savedBooking = await newBooking.save();
 
-    // ✅ Send confirmation email after booking is saved
-    await sendBookingEmails({
-      firstName, lastName, email, carModel, washType: washType.name, 
-      date, time, totalPrice
-    });
-    
     const yocoPayload = {
       amount,
       currency: "ZAR",
       reference: `Booking_${savedBooking._id}`,
       successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}`,
       cancelUrl: `https://kiings.vercel.app/#/paymentcanceled?bookingId=${savedBooking._id}`,
-  
     };
 
     const yocoResponse = await axios.post(
@@ -156,7 +150,7 @@ app.post("/api/book", async (req, res) => {
         },
       }
     );
-    
+
     if (yocoResponse.data.redirectUrl) {
       await new Payment({
         bookingId: savedBooking._id,
@@ -164,15 +158,18 @@ app.post("/api/book", async (req, res) => {
         yocoSessionId: yocoResponse.data.id,
         paymentStatus: "pending",
       }).save();
+
       return res.json({ redirectUrl: yocoResponse.data.redirectUrl });
     }
+
     return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
   } catch (error) {
+    console.error("Booking/payment initiation failed:", error);
     res.status(500).json({ error: "Payment initiation failed" });
   }
 });
 
-// Payment confirmation webhook
+// Payment confirmation webhook — ONLY here emails are sent
 app.post("/api/payments/confirm", async (req, res) => {
   try {
     const { sessionId, status } = req.body;
@@ -184,29 +181,30 @@ app.post("/api/payments/confirm", async (req, res) => {
     payment.paymentStatus = status === "successful" ? "successful" : "failed";
     await payment.save();
 
-   if (status === "successful") {
-  const updatedBooking = await Booking.findByIdAndUpdate(
-    payment.bookingId,
-    { paymentStatus: "Paid" },
-    { new: true } // to get updated document back
-  );
+    if (status === "successful") {
+      const updatedBooking = await Booking.findByIdAndUpdate(
+        payment.bookingId,
+        { paymentStatus: "Paid" },
+        { new: true }
+      );
 
-  if (updatedBooking) {
-    await sendBookingEmails({
-      firstName: updatedBooking.firstName,
-      lastName: updatedBooking.lastName,
-      email: updatedBooking.email,
-      carModel: updatedBooking.carModel,
-      washType: updatedBooking.washType.name,
-      date: updatedBooking.date,
-      time: updatedBooking.time,
-      totalPrice: payment.amount / 100, // convert cents to Rands
-    });
-  }
-}
+      if (updatedBooking) {
+        await sendBookingEmails({
+          firstName: updatedBooking.firstName,
+          lastName: updatedBooking.lastName,
+          email: updatedBooking.email,
+          carModel: updatedBooking.carModel,
+          washType: updatedBooking.washType.name,
+          date: updatedBooking.date,
+          time: updatedBooking.time,
+          totalPrice: payment.amount / 100, // convert cents to Rands
+        });
+      }
+    }
 
     res.json({ message: "Payment status updated successfully" });
   } catch (error) {
+    console.error("Payment confirmation failed:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
