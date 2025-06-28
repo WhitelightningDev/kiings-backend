@@ -209,6 +209,33 @@ app.post("/api/payments/confirm", async (req, res) => {
   }
 });
 
+app.post('/api/bookings/send-confirmation', async (req, res) => {
+  const { bookingId } = req.body;
+  if (!bookingId) return res.status(400).json({ error: "Booking ID is required" });
+
+  try {
+    const booking = await Booking.findById(bookingId);
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+    await sendBookingEmails({
+      firstName: booking.firstName,
+      lastName: booking.lastName,
+      email: booking.email,
+      carModel: booking.carModel,
+      washType: booking.washType.name,
+      date: booking.date,
+      time: booking.time,
+      totalPrice: null,
+    });
+
+    res.json({ message: "Confirmation email sent" });
+  } catch (error) {
+    console.error("Failed to send confirmation email:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+
 // Fetch bookings
 app.get("/api/my-bookings", async (req, res) => {
   const { email } = req.query;
