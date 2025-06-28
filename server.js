@@ -133,7 +133,7 @@ app.post("/api/book", async (req, res) => {
       amount,
       currency: "ZAR",
       reference: `Booking_${savedBooking._id}`,
-      successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}`,
+      successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}&sessionId=${yocoResponse.data.id}`,
       cancelUrl: `https://kiings.vercel.app/#/paymentcanceled?bookingId=${savedBooking._id}`,
     };
 
