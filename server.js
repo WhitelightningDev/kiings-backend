@@ -19,7 +19,6 @@ const allowedOrigins = ["https://kiings.vercel.app", "http://localhost:3000"];
 app.use(
   cors({
     origin: function (origin, callback) {
-      // allow requests with no origin (like mobile apps, Postman)
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
@@ -29,7 +28,7 @@ app.use(
     },
     methods: "GET,POST,PUT,DELETE",
     allowedHeaders: "Content-Type,Authorization",
-    credentials: true, // In case you need cookies or auth later
+    credentials: true,
   })
 );
 
@@ -131,19 +130,14 @@ app.post("/api/book", async (req, res) => {
     });
     const savedBooking = await newBooking.save();
 
-    // ✅ Send confirmation email after booking is saved
-    await sendBookingEmails({
-      firstName, lastName, email, carModel, washType: washType.name, 
-      date, time, totalPrice
-    });
-    
+    // NOTE: Removed sendBookingEmails here to send after payment confirmation only
+
     const yocoPayload = {
       amount,
       currency: "ZAR",
       reference: `Booking_${savedBooking._id}`,
       successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}`,
       cancelUrl: `https://kiings.vercel.app/#/paymentcanceled?bookingId=${savedBooking._id}`,
-  
     };
 
     const yocoResponse = await axios.post(
@@ -214,6 +208,7 @@ app.post("/api/payments/confirm", async (req, res) => {
       console.log("📦 Booking updated successfully:", updatedBooking._id);
 
       try {
+        // Send confirmation email ONLY after payment success
         await sendBookingEmails({
           firstName: updatedBooking.firstName,
           lastName: updatedBooking.lastName,
@@ -222,7 +217,7 @@ app.post("/api/payments/confirm", async (req, res) => {
           washType: updatedBooking.washType.name,
           date: updatedBooking.date,
           time: updatedBooking.time,
-          totalPrice: payment.amount / 100, // cents to Rands
+          totalPrice: payment.amount / 100,
         });
         console.log("📩 Payment success confirmation emails sent.");
       } catch (emailError) {
@@ -236,7 +231,6 @@ app.post("/api/payments/confirm", async (req, res) => {
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
-
 
 // Fetch bookings
 app.get("/api/my-bookings", async (req, res) => {
