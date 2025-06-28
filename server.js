@@ -15,9 +15,11 @@ const port = process.env.PORT || 3030;
 
 // Middleware
 const allowedOrigins = ["https://kiings.vercel.app", "http://localhost:3000"];
+
 app.use(
   cors({
     origin: function (origin, callback) {
+      // allow requests with no origin (like mobile apps, Postman)
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
@@ -27,7 +29,7 @@ app.use(
     },
     methods: "GET,POST,PUT,DELETE",
     allowedHeaders: "Content-Type,Authorization",
-    credentials: true,
+    credentials: true, // In case you need cookies or auth later
   })
 );
 
@@ -42,7 +44,7 @@ connect(mongoURI, {
   .then(() => console.log("MongoDB connected"))
   .catch((err) => console.log("Error connecting to MongoDB:", err));
 
-// Models
+// Define Booking model
 const bookingSchema = new Schema({
   firstName: String,
   lastName: String,
@@ -69,6 +71,7 @@ const bookingSchema = new Schema({
 
 const Booking = model('Booking', bookingSchema);
 
+// Define Payment model
 const paymentSchema = new Schema({
   bookingId: { type: Schema.Types.ObjectId, ref: "Booking", required: true },
   amount: { type: Number, required: true },
@@ -79,35 +82,35 @@ const paymentSchema = new Schema({
 
 const Payment = model("Payment", paymentSchema);
 
-// Utility: Generate available time slots
+// Generate available time slots
 function generateAvailableSlots(date) {
-  const start = moment(date).set('hour', 8).set('minute', 0);
-  const end = moment(date).set('hour', 18).set('minute', 0);
+  const workingHoursStart = moment(date).set('hour', 8).set('minute', 0);
+  const workingHoursEnd = moment(date).set('hour', 18).set('minute', 0);
   const slots = [];
-  let slot = start;
+  let currentSlot = workingHoursStart;
 
-  while (slot.isBefore(end)) {
-    slots.push(slot.format('HH:mm'));
-    slot = slot.add(30, 'minutes');
+  while (currentSlot.isBefore(workingHoursEnd)) {
+    slots.push(currentSlot.format('HH:mm'));
+    currentSlot = currentSlot.add(30, 'minutes');
   }
 
   return slots;
 }
 
-// Endpoint: Fetch available slots
+// Fetch available slots
 app.get('/api/available-slots', async (req, res) => {
   const { date } = req.query;
   if (!date) return res.status(400).send('Date is required');
 
   const availableSlots = generateAvailableSlots(date);
-  const bookings = await Booking.find({ date }).select('time').lean();
-  const bookedTimes = bookings.map(b => b.time);
-  const freeSlots = availableSlots.filter(slot => !bookedTimes.includes(slot));
+  const bookedTimes = await Booking.find({ date }).select('time').lean();
+  const bookedTimeSlots = bookedTimes.map(booking => booking.time);
+  const availableTimes = availableSlots.filter(slot => !bookedTimeSlots.includes(slot));
 
-  return res.json(freeSlots);
+  return res.json(availableTimes);
 });
 
-// Endpoint: Book and initiate payment (FIXED Yoco checkout order)
+// Book a car wash and initiate payment
 app.post("/api/book", async (req, res) => {
   try {
     const {
@@ -119,9 +122,8 @@ app.post("/api/book", async (req, res) => {
       return res.status(400).json({ error: "Invalid total price" });
     }
 
-    const amount = Math.round(Number(totalPrice) * 100); // in cents
-
-    // Step 1: Save booking first to get booking ID
+    const amount = Math.round(Number(totalPrice) * 100);
+    
     const newBooking = new Booking({
       firstName, lastName, carModel, washType, additionalServices,
       date, time, email, subscription, serviceLocation, address,
@@ -129,13 +131,19 @@ app.post("/api/book", async (req, res) => {
     });
     const savedBooking = await newBooking.save();
 
-    // Step 2: Create Yoco checkout session
+    // ✅ Send confirmation email after booking is saved
+    await sendBookingEmails({
+      firstName, lastName, email, carModel, washType: washType.name, 
+      date, time, totalPrice
+    });
+    
     const yocoPayload = {
       amount,
       currency: "ZAR",
-      reference: `Booking_${savedBooking._id}`, // Use booking ID here
-      successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}`, 
+      reference: `Booking_${savedBooking._id}`,
+      successUrl: `https://kiings.vercel.app/#/success?bookingId=${savedBooking._id}`,
       cancelUrl: `https://kiings.vercel.app/#/paymentcanceled?bookingId=${savedBooking._id}`,
+  
     };
 
     const yocoResponse = await axios.post(
@@ -148,35 +156,27 @@ app.post("/api/book", async (req, res) => {
         },
       }
     );
-
-    if (!yocoResponse.data || !yocoResponse.data.redirectUrl || !yocoResponse.data.id) {
-      return res.status(500).json({ error: "Failed to create Yoco checkout session" });
+    
+    if (yocoResponse.data.redirectUrl) {
+      await new Payment({
+        bookingId: savedBooking._id,
+        amount: totalPrice,
+        yocoSessionId: yocoResponse.data.id,
+        paymentStatus: "pending",
+      }).save();
+      return res.json({ redirectUrl: yocoResponse.data.redirectUrl });
     }
-
-    // Step 3: Save payment session with Yoco session ID
-    await new Payment({
-      bookingId: savedBooking._id,
-      amount: Number(totalPrice),
-      yocoSessionId: yocoResponse.data.id,
-      paymentStatus: "pending",
-    }).save();
-
-    // Step 4: Return redirect URL with sessionId appended so frontend can get it
-    const redirectUrl = `${yocoResponse.data.redirectUrl}&sessionId=${yocoResponse.data.id}`;
-    return res.json({ redirectUrl });
+    return res.status(500).json({ error: "Failed to retrieve Yoco checkout URL" });
   } catch (error) {
-    console.error("Booking/payment initiation failed:", error.response?.data || error.message || error);
-    return res.status(500).json({ error: "Payment initiation failed" });
+    res.status(500).json({ error: "Payment initiation failed" });
   }
 });
 
-// Endpoint: Confirm payment and send email only if successful
+// Payment confirmation webhook
 app.post("/api/payments/confirm", async (req, res) => {
   try {
     const { sessionId, status } = req.body;
-    if (!sessionId || !status) {
-      return res.status(400).json({ error: "Invalid request data" });
-    }
+    if (!sessionId || !status) return res.status(400).json({ error: "Invalid request data" });
 
     const payment = await Payment.findOne({ yocoSessionId: sessionId });
     if (!payment) return res.status(404).json({ error: "Payment not found" });
@@ -184,50 +184,44 @@ app.post("/api/payments/confirm", async (req, res) => {
     payment.paymentStatus = status === "successful" ? "successful" : "failed";
     await payment.save();
 
-    if (status === "successful") {
-      const updatedBooking = await Booking.findByIdAndUpdate(
-        payment.bookingId,
-        { paymentStatus: "Paid" },
-        { new: true }
-      );
+   if (status === "successful") {
+  const updatedBooking = await Booking.findByIdAndUpdate(
+    payment.bookingId,
+    { paymentStatus: "Paid" },
+    { new: true } // to get updated document back
+  );
 
-      if (updatedBooking) {
-        await sendBookingEmails({
-          firstName: updatedBooking.firstName,
-          lastName: updatedBooking.lastName,
-          email: updatedBooking.email,
-          carModel: updatedBooking.carModel,
-          washType: updatedBooking.washType.name,
-          date: updatedBooking.date,
-          time: updatedBooking.time,
-          totalPrice: payment.amount, // already in Rands, not cents
-        });
-      }
-    }
+  if (updatedBooking) {
+    await sendBookingEmails({
+      firstName: updatedBooking.firstName,
+      lastName: updatedBooking.lastName,
+      email: updatedBooking.email,
+      carModel: updatedBooking.carModel,
+      washType: updatedBooking.washType.name,
+      date: updatedBooking.date,
+      time: updatedBooking.time,
+      totalPrice: payment.amount / 100, // convert cents to Rands
+    });
+  }
+}
 
-    return res.json({ message: "Payment status updated successfully" });
+    res.json({ message: "Payment status updated successfully" });
   } catch (error) {
-    console.error("Payment confirmation failed:", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Endpoint: Fetch bookings by email
+// Fetch bookings
 app.get("/api/my-bookings", async (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).json({ error: "Email is required" });
-
-  const bookings = await Booking.find({ email });
-  res.json(bookings);
+  res.json(await Booking.find({ email }));
 });
 
-// Endpoint: Fetch all bookings
-app.get("/api/all-bookings", async (_req, res) => {
-  const bookings = await Booking.find();
-  res.json(bookings);
+app.get("/api/all-bookings", async (req, res) => {
+  res.json(await Booking.find());
 });
 
-// Start server
 app.listen(port, '0.0.0.0', () => {
-  console.log(`🚀 Server running at http://localhost:${port}`);
+  console.log(`Server running at http://localhost:${port}`);
 });
