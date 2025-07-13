@@ -3,7 +3,7 @@ function generateSlotsForDay(date) {
     startTime.setHours(8, 0, 0, 0); // 8:00 AM
   
     const endTime = new Date(date);
-    endTime.setHours(18, 0, 0, 0); // 6:00 PM
+    endTime.setHours(19, 0, 0, 0); // 6:00 PM
   
     let slots = [];
     let currentTime = startTime;
