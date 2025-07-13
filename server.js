@@ -85,7 +85,8 @@ const Payment = model("Payment", paymentSchema);
 // Generate available time slots
 function generateAvailableSlots(date) {
   const workingHoursStart = moment(date).set('hour', 8).set('minute', 0);
-  const workingHoursEnd = moment(date).set('hour', 18).set('minute', 0);
+  const workingHoursEnd = moment(date).set('hour', 19).set('minute', 0); // Changed from 18 to 19
+
   const slots = [];
   let currentSlot = workingHoursStart;
 
@@ -96,6 +97,7 @@ function generateAvailableSlots(date) {
 
   return slots;
 }
+
 
 // Fetch available slots
 app.get('/api/available-slots', async (req, res) => {
