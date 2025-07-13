@@ -4,7 +4,7 @@ const Booking = require('../models/Booking');
 function generateSlotsForDay(date) {
   const slots = [];
   const startHour = 8;
-  const endHour = 18;
+  const endHour = 19;
 
   for (let hour = startHour; hour < endHour; hour++) {
     slots.push(`${hour.toString().padStart(2, '0')}:00`);
