@@ -24,6 +24,7 @@ const clientBaseUrl =
 // Middleware
 const allowedOrigins = [
   'https://kiings.vercel.app',
+  'https://kiingsvipcarwash.vercel.app',
   'http://localhost:3000',
   'http://localhost:4200',
   'http://127.0.0.1:4200',
