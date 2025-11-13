@@ -12,7 +12,14 @@ config();
 
 const app = express();
 const port = process.env.PORT || 3030;
-const clientBaseUrl = process.env.CLIENT_BASE_URL || 'http://localhost:4200';
+
+// Frontend base URL used for Yoco redirects
+const rawClientBaseUrl = process.env.CLIENT_BASE_URL || 'http://localhost:4200';
+const isLiveYocoKey = (process.env.YOCO_SECRET_KEY || '').startsWith('sk_live_');
+const clientBaseUrl =
+  isLiveYocoKey && rawClientBaseUrl.startsWith('http://')
+    ? rawClientBaseUrl.replace('http://', 'https://')
+    : rawClientBaseUrl;
 
 // Middleware
 const allowedOrigins = [
@@ -93,6 +100,35 @@ const paymentSchema = new Schema({
 
 const Payment = model('Payment', paymentSchema);
 
+// Static catalog for add-on services (shared with frontend)
+const ADD_ON_CATALOG = [
+  {
+    id: 'interior',
+    label: 'Interior Cleans Only – Vacuum, air vents, dashboard shine, door panels',
+    price: 100,
+  },
+  {
+    id: 'leather',
+    label: 'Leather Clean – Nourish & protect leather surfaces',
+    price: 50,
+  },
+  {
+    id: 'ceramic',
+    label: 'Ceramic Infused Spray – Hydrophobic shine & protection',
+    price: 150,
+  },
+  {
+    id: 'headlight',
+    label: 'Headlight Restoration – Restores clarity to headlights',
+    price: 200,
+  },
+  {
+    id: 'bodygloss',
+    label: 'Body Gloss – Enhances depth & glossy finish',
+    price: 100,
+  },
+];
+
 // Generate available time slots
 function generateAvailableSlots(date) {
   const workingHoursStart = moment(date).set('hour', 8).set('minute', 0);
@@ -109,6 +145,11 @@ function generateAvailableSlots(date) {
 
   return slots;
 }
+
+// Expose add-ons catalog
+app.get('/api/addons', (req, res) => {
+  res.json(ADD_ON_CATALOG);
+});
 
 
 // Fetch available slots
