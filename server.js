@@ -14,7 +14,9 @@ const app = express();
 const port = process.env.PORT || 3030;
 
 // Frontend base URL used for Yoco redirects
-const rawClientBaseUrl = process.env.CLIENT_BASE_URL || 'http://localhost:4200';
+// Default to deployed Vercel frontend; can be overridden via CLIENT_BASE_URL env var
+const rawClientBaseUrl =
+  process.env.CLIENT_BASE_URL || 'https://kiingsvipcarwash.vercel.app';
 const isLiveYocoKey = (process.env.YOCO_SECRET_KEY || '').startsWith('sk_live_');
 const clientBaseUrl =
   isLiveYocoKey && rawClientBaseUrl.startsWith('http://')
